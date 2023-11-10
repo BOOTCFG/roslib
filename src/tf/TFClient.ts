@@ -131,7 +131,7 @@ TFClient.prototype.updateGoal = function () {
     goalMessage.timeout = this.topicTimeout;
     var request = new ServiceRequest(goalMessage);
 
-    this.serviceClient.callService(request, this.processResponse.bind(this));
+    this.serviceClient.callService(request).then(response => this.processResponse(response));
   }
 
   this.republisherUpdateRequested = false;
@@ -156,7 +156,7 @@ TFClient.prototype.processResponse = function (response) {
     this.currentTopic.unsubscribe(this._subscribeCB);
   }
 
-  this.currentTopic = new Topic({
+  this.currentTopic = this.ros.Topic({
     ros: this.ros,
     name: response.topic_name,
     messageType: "tf2_web_republisher/TFArray",
