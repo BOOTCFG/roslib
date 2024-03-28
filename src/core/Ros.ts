@@ -12,6 +12,10 @@ import Param from "./Param.js";
 
 import EventEmitter2 from "eventemitter2";
 
+import { FoxgloveClient, SubscriptionId } from "@foxglove/ws-protocol";
+import { MessageReader as ROS2MessageReader } from "@foxglove/rosmsg2-serialization";
+import { parse as parseMessageDefinition } from "@foxglove/rosmsg";
+
 interface RosOptions {
   url?: string;
   groovyCompatibility: boolean;
@@ -29,6 +33,10 @@ class Ros extends EventEmitter2 {
   options: RosOptions;
 
   socket: WorkerSocket;
+
+  client: any;
+  resolvedSubscriptionsById = new Map<SubscriptionId, string>();
+
   idCounter = 0;
   isConnected = false;
 
@@ -108,7 +116,85 @@ class Ros extends EventEmitter2 {
 
   connect(url: string) {
     const tl = this.options.transportLibrary;
-    if (tl === "websocket" || tl === "workersocket") {
+    if (tl === "foxglove") {
+      const address =
+        url.startsWith("ws://") || url.startsWith("wss://")
+          ? url
+          : `ws://${url}`;
+      this.client = new FoxgloveClient({
+        ws: new WebSocket(address, [FoxgloveClient.SUPPORTED_SUBPROTOCOL]),
+      });
+
+      const deserializers = new Map<
+        SubscriptionId,
+        (data: DataView) => unknown
+      >();
+      this.client.on("error", (error) => {
+        console.log("Error", error);
+        throw error;
+      });
+      this.client.on("advertise", (channels) => {
+        for (const channel of channels) {
+          // console.log(channel.topic)
+          // if (channel.topic !== "/robot_description") continue;
+          if (channel.encoding === "json") {
+            const textDecoder = new TextDecoder();
+            const subId = client.subscribe(channel.id);
+            deserializers.set(
+              subId,
+              (data) => JSON.parse(textDecoder.decode(data)) as unknown
+            );
+          } else if (channel.encoding === "protobuf") {
+            const root = protobufjs.Root.fromDescriptor(
+              FileDescriptorSet.decode(Buffer.from(channel.schema, "base64"))
+            );
+            const type = root.lookupType(channel.schemaName);
+
+            const subId = this.client.subscribe(channel.id);
+            deserializers.set(subId, (data) =>
+              type.decode(
+                new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+              )
+            );
+          } else if (channel.encoding === "cdr") {
+            const schema = channel.schema;
+            if (channel.schemaEncoding === "omgidl") {
+              console.log("Unsupported schemaenc");
+            } else {
+              const isIdl = channel.schemaEncoding === "ros2idl";
+              if (isIdl) {
+                console.log("Unsupported schemaenc");
+              }
+              const parsedDefinitions = parseMessageDefinition(schema, {
+                ros2: true,
+              });
+
+              const reader = new ROS2MessageReader(parsedDefinitions);
+
+              const subId = this.client.subscribe(channel.id);
+              deserializers.set(subId, (data) => reader.readMessage(data));
+
+              this.resolvedSubscriptionsById.set(subId, channel.topic);
+            }
+          } else {
+            console.warn(`Unsupported encoding ${channel.encoding}`);
+          }
+        }
+      });
+      this.client.on("message", ({ subscriptionId, timestamp, data }) => {
+        // console.log();
+        // console.log({
+        //   subscriptionId,
+        //   timestamp,
+        //   data: ,
+        // });
+        // this.handleDecodedMessage(message);
+        this.emit(
+          this.resolvedSubscriptionsById.get(subscriptionId),
+          deserializers.get(subscriptionId)!(data)
+        );
+      });
+    } else if (tl === "websocket" || tl === "workersocket") {
       if (!this.socket || this.socket.readyState === WebSocket.CLOSED) {
         if (tl === "websocket") {
           this.socket = new WebSocket(url);
