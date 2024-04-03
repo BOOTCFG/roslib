@@ -13,7 +13,7 @@ import Param from "./Param.js";
 import EventEmitter2 from "eventemitter2";
 
 import { FoxgloveClient, SubscriptionId } from "@foxglove/ws-protocol";
-import { MessageReader as ROS2MessageReader } from "@foxglove/rosmsg2-serialization";
+import { MessageReader as ROS2MessageReader, MessageWriter as ROS2MessageWriter } from "@foxglove/rosmsg2-serialization";
 import { parse as parseMessageDefinition } from "@foxglove/rosmsg";
 
 interface RosOptions {
@@ -275,6 +275,8 @@ class Ros extends EventEmitter2 {
   }
 
   callOnConnection(message: any) {
+    // const writer = new Ros2MessageWriter([{ definitions: [{ name: "data", type: "string" }] }]);
+    console.log(message)
     this.sendEncodedMessage(JSON.stringify(message));
   }
 
